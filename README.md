@@ -1,6 +1,6 @@
 # 🎯 Focus Sessions — Android App
 
-A feature-complete, modern Android application built with **Kotlin 2.2**, **Jetpack Compose**, **Hilt**, **Room**, **DataStore**, **Media3/ExoPlayer**, **WorkManager**, and **Firebase (Auth & Firestore Sync)**.
+A feature-complete, modern Android application built with **Kotlin 2.2**, **Jetpack Compose**, **Hilt**, **Room**, **DataStore**, **Media3/ExoPlayer**, **WorkManager**, and **Firebase (Auth & Cloud Firestore Sync)**.
 
 ---
 
@@ -14,7 +14,7 @@ com.focussessions.app/
 │
 ├── calendar/
 │   ├── AnalyticsEngine.kt    → Daily, weekly, and monthly productivity calculations
-│   ├── CalendarManager.kt   → Calendar navigation and date selection
+│   ├── CalendarManager.kt   → Calendar navigation, month grids, and heatmap data merging
 │   └── ProductivityCalculator.kt → Automated productivity insights and streak calculator
 │
 ├── connectivity/
@@ -23,8 +23,8 @@ com.focussessions.app/
 ├── data/
 │   ├── local/
 │   │   ├── database/
-│   │   │   ├── dao/          → TaskDao, FocusSessionDao, FocusHistoryDao, AnalyticsDao
-│   │   │   ├── entities/     → TaskEntity, FocusSessionEntity, FocusHistoryEntity, CalendarDayEntity
+│   │   │   ├── dao/          → TaskDao, FocusSessionDao, FocusHistoryDao, DailyProgressDao, CalendarDao, AnalyticsDao
+│   │   │   ├── entities/     → TaskEntity, FocusSessionEntity, FocusHistoryEntity, DailyProgressEntity, CalendarDayEntity
 │   │   │   └── AppDatabase.kt → Room DB instance
 │   │   └── datastore/
 │   │       └── UserPreferencesDataStore.kt
@@ -37,11 +37,11 @@ com.focussessions.app/
 │
 ├── service/
 │   ├── TimerService.kt       → Foreground Service (lifecycle-safe focus countdown)
-│   └── MusicService.kt       → Media3 MediaSessionService + local music player
+│   └── MusicService.kt       → Media3 MediaSessionService + local music & system ringtone player
 │
 ├── stopwatch/
 │   ├── StopwatchEngine.kt    → Drift-free 16ms precision stopwatch
-│   ├── StopwatchService.kt   → Foreground service for continuous stopwatch operation
+│   ├── StopwatchService.kt   → Foreground service with high-priority alarm notification
 │   └── StopwatchState.kt     → Stopwatch UI state model
 │
 ├── sync/
@@ -53,11 +53,11 @@ com.focussessions.app/
 │
 ├── timer/
 │   ├── CycleState.kt         → Real-time focus cycle progress & time calculations
-│   ├── SessionManager.kt     → Multi-cycle Pomodoro state machine
+│   ├── SessionManager.kt     → Multi-cycle Pomodoro state machine with minute-by-minute progress
 │   └── TimerEngine.kt        → Drift-free SystemClock countdown engine
 │
 ├── ui/
-│   ├── components/           → Modular Compose components (Timer, Tasks, Music, Calendar)
+│   ├── components/           → Modular Compose components (Timer, AppLogo, Tasks, Music, Calendar)
 │   ├── screens/              → Navigation screens (Focus, Analytics, Calendar, Profile, Login, Settings)
 │   └── theme/                → App typography, colors, and Material 3 theme
 │
@@ -72,26 +72,38 @@ com.focussessions.app/
 - **Drift-Free Timer:** Uses `SystemClock.elapsedRealtime` to prevent timer drift during long runs or sleep states.
 - **Custom Arc Ring:** Fluid Jetpack Compose `Canvas` ring with pulse glow, tick marks, and animated sweep angle.
 - **Session Phases:** Automatically cycles between `FOCUS`, `SHORT_BREAK`, and `LONG_BREAK`.
+- **Live Minute-by-Minute Tracking:** Focus time and break time update live every minute across all app features (`FocusScreen`, `AnalyticsScreen`, `CalendarScreen`, `ProfileScreen`) while a session is running.
 - **Foreground Service:** Active countdown runs inside `TimerService` with a sticky notification and WakeLock protection.
 
+### 🟩 365-Day Coding Platform Style Streak Heatmap
+- **Contribution Heatmap Grid:** A 53-week × 7-day contribution grid (GitHub/LeetCode style) displaying focused and non-focused days across the last 365 days.
+- **5-Level Color Scale:**
+  - `0m` (Non-focused day): Dark slate square (`#161B22`) with a crisp border (`#21262D`).
+  - `1m - 20m`: Dark forest green (`#0E4429`).
+  - `21m - 45m`: Medium emerald green (`#006D32`).
+  - `46m - 90m`: Bright mint green (`#26A641`).
+  - `91m+`: Vibrant glowing neon green (`#39D353`).
+- **Interactive Tapping:** Tapping any square on the heatmap highlights the cell with a white outline and displays exact session list and total focus time for that date.
+- **Cloud & Local Storage:** Heatmap metrics (`calendar_days`) persist in Room DB and sync live to Firebase Firestore.
+
+### 🔔 System Alarm & Ringtone Completion Music
+- **Ringtone & Alarm Integration:** Supports device system ringtones, alarms, and local MP3 tracks via `RingtoneManager` and `Media3/ExoPlayer`.
+- **Default Sound Fallback:** Built-in "Default Alarm Ring ⏰" ensures the timer always rings even on fresh devices without local music files.
+- **High-Priority Alarm Notifications:** Custom notification channels (`stopwatch_complete_channel` / `focus_timer_channel`) with alarm audio attributes and vibration patterns so the device rings loudly even when screen is locked or app is in background.
+
 ### 🔄 Multi-Device Cloud Sync & Offline-First Storage
-- **Offline-First:** All user data (sessions, tasks, preferences, stopwatch records) is saved instantly to local Room database tables.
+- **Offline-First:** All user data (sessions, tasks, daily progress, calendar days, preferences) is saved instantly to local Room database tables.
 - **Firebase Firestore Sync:** Automatically queues offline changes in `SyncQueue` and uploads to Firebase Cloud Firestore (`users/{uid}/...`) when connected.
-- **Multi-Device Synchronization:** Sign in with Google on multiple devices to automatically merge and synchronize focus history, streaks, and tasks via Last-Write-Wins (`ConflictResolver`).
-- **Periodic Background Sync:** `WorkManager` runs background synchronization every 15 minutes to ensure consistency.
+- **Multi-Device Synchronization:** Sign in with Google on multiple devices to automatically merge and synchronize focus history, streaks, calendar heatmaps, and tasks via Last-Write-Wins (`ConflictResolver`).
+- **Automatic Sync on Launch:** Performs a `fullSync()` on login or app launch to fetch and merge cloud data seamlessly.
 
-### 🔑 Google Authentication
-- **Credential Manager Integration:** Seamless One-Tap Google Sign-In using Android `CredentialManager` API.
-- **Legacy Fallback:** Automatically falls back to Google Sign-In bottom sheet if Credential Manager is unavailable.
+### 👤 Live Profile Metrics
+- **Dynamic Stats Display:** Profile screen computes and displays live total focus time ("2h 15m") and active streak ("3d") directly from Room DB and `AnalyticsEngine`.
+- **Firebase Profile Sync:** Profile stats automatically sync to Firestore profile documents (`users/{uid}/profile/data`).
 
-### 📊 Analytics & Calendar Insights
-- **Productivity Breakdown:** Analyzes focus habits across daily, weekly, and monthly views.
-- **Streak & Consistency Counter:** Calculates active focus day streaks and monthly consistency percentages.
-- **Time-of-Day Insights:** Identifies most productive days of the week and peak focus hours.
-
-### 🎵 Media3 Local Music Player
-- **Local Audio Scan:** Scans device storage using `MediaStore` for local audio tracks.
-- **ExoPlayer Playback:** Integrated `Media3` player with mini-player controls, track selection dialog, and auto-play during focus sessions.
+### 🎨 Custom App Branding & Vector Logo
+- **Adaptive Icon:** Adaptive launcher icon (`ic_launcher` / `ic_launcher_round`) with midnight blue squircle background, cyan-to-purple gradient arc, indicator node, and clock hands.
+- **Compose Logo Components:** Composable vectors (`AppLogoIcon`, `AppLogoHeader`) with gradient `"time"` text typography.
 
 ---
 
@@ -106,7 +118,7 @@ com.focussessions.app/
 | **Local Database** | Room `2.8.5` | SQLite persistence with KSP |
 | **Preferences** | DataStore Preferences `1.1.1` | Key-value settings persistence |
 | **Background Work** | WorkManager `2.9.1` | Periodic cloud synchronization |
-| **Media Player** | Media3 / ExoPlayer `1.4.0` | Audio playback |
+| **Media Player** | Media3 / ExoPlayer `1.4.0` | Audio & ringtone playback |
 | **Authentication** | Credential Manager `1.3.0` + Firebase Auth | One-Tap Google Sign-In |
 | **Cloud Storage** | Firebase Firestore `33.1.2` | Multi-device cloud sync |
 | **Testing** | JUnit4, Kotlinx Coroutines Test, Room Test, Robolectric | Comprehensive unit testing suite |
@@ -125,7 +137,7 @@ com.focussessions.app/
 
 1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/your-username/FocusSessions.git
+   git clone https://github.com/vivek-1728/FocusSessions.git
    cd FocusSessions
    ```
 
@@ -137,10 +149,11 @@ com.focussessions.app/
      keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
      ```
 
-3. **Build the Project:**
+3. **Build the Debug APK:**
    ```bash
    ./gradlew :app:assembleDebug
    ```
+   *Output path:* `app/build/outputs/apk/debug/app-debug.apk`
 
 4. **Run Local Unit Tests:**
    ```bash
@@ -151,7 +164,7 @@ com.focussessions.app/
 
 ## 🧪 Testing
 
-The codebase includes unit tests covering data serialization, timer engines, analytics calculations, and conflict resolution:
+The codebase includes 107+ unit tests covering data serialization, timer engines, analytics calculations, and conflict resolution:
 
 ```bash
 ./gradlew :app:testDebugUnitTest
@@ -163,6 +176,7 @@ Key test coverage includes:
 - `ModelsAndEntitiesTest`: Validates Firestore map conversions and Room entity defaults.
 - `StopwatchStateTest`: Validates millisecond-precision stopwatch display logic.
 - `AnalyticsEngineTest`: Validates daily/weekly/monthly productivity analytics algorithms.
+- `TwoDeviceSyncTest`: Validates cross-device cloud sync convergence for sessions, tasks, and streaks.
 
 ---
 
