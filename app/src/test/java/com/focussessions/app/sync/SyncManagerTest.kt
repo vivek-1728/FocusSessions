@@ -68,6 +68,7 @@ class SyncManagerTest {
             syncQueueDao = syncQueueDao,
             historyDao = historyDao,
             taskDao = taskDao,
+            calendarDao = database.calendarDao(),
             networkMonitor = fakeNetworkMonitor
         )
     }

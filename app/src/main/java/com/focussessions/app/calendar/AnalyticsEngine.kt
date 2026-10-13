@@ -1,6 +1,7 @@
 package com.focussessions.app.calendar
 
 import com.focussessions.app.data.local.database.dao.AnalyticsDao
+import com.focussessions.app.data.local.database.dao.DailyProgressDao
 import com.focussessions.app.data.local.database.dao.FocusHistoryDao
 import com.focussessions.app.data.local.database.entities.FocusHistoryEntity
 import com.focussessions.app.data.local.database.entities.ProductivityInsightEntity
@@ -42,15 +43,25 @@ data class MonthlyAnalytics(
 @Singleton
 class AnalyticsEngine @Inject constructor(
     private val historyDao: FocusHistoryDao,
-    private val analyticsDao: AnalyticsDao
+    private val analyticsDao: AnalyticsDao,
+    private val progressDao: DailyProgressDao
 ) {
     // ── Daily ─────────────────────────────────────────────────────────────────
     suspend fun getDailyAnalytics(epochDay: Long): DailyAnalytics {
-        val total   = historyDao.totalFocusMinutesForDay(epochDay) ?: 0
-        val longest = historyDao.longestSessionForDay(epochDay) ?: 0
+        val sessions = historyDao.getForDayList(epochDay)
+        val progress = progressDao.getProgressForDay(epochDay)
+
+        val total   = maxOf(historyDao.totalFocusMinutesForDay(epochDay) ?: 0, progress?.focusMinutes ?: 0)
+        val count   = maxOf(historyDao.sessionCountForDay(epochDay), progress?.sessionsCount ?: 0, sessions.size)
+        val longest = maxOf(historyDao.longestSessionForDay(epochDay) ?: 0, sessions.maxOfOrNull { it.actualFocusMinutes } ?: 0)
+        val breakMins = historyDao.totalBreakMinutesForDay(epochDay) ?: sessions.sumOf { it.actualBreakMinutes }
+
         return DailyAnalytics(
             totalFocusMinutes     = total,
-            longestSessionMinutes = longest
+            sessionCount          = count,
+            longestSessionMinutes = longest,
+            totalBreakMinutes     = breakMins,
+            sessions              = sessions
         )
     }
 
@@ -96,12 +107,14 @@ class AnalyticsEngine @Inject constructor(
         val from   = ym.atDay(1).toEpochDay()
         val to     = ym.atEndOfMonth().toEpochDay()
 
-        val total   = historyDao.totalFocusMinutesForRange(from, to) ?: 0
-        val active  = historyDao.activeDaysInRange(from, to)
-        val consistency = ((active.toFloat() / days) * 100).toInt()
+        val total       = historyDao.totalFocusMinutesForRange(from, to) ?: 0
+        val active      = historyDao.activeDaysInRange(from, to)
+        val totalSess   = historyDao.sessionCountForRange(from, to)
+        val consistency = if (days > 0) ((active.toFloat() / days) * 100).toInt() else 0
 
         return MonthlyAnalytics(
             totalFocusMinutes  = total,
+            totalSessions      = totalSess,
             activeDays         = active,
             totalDaysInMonth   = days,
             consistencyPercent = consistency

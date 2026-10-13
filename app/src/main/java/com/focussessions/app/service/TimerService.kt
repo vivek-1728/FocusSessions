@@ -62,15 +62,17 @@ class TimerService : Service() {
         scope                = serviceScope,
         onPhaseChanged       = { phase -> handlePhaseChanged(phase) },
         onCycleCompleted     = { state -> handleCycleCompleted(state) },
-        onNotificationUpdate = { state -> updateNotification(state) }
+        onNotificationUpdate = { state -> updateNotification(state) },
+        onProgressTick       = { id, fMin, sec, bMin -> onProgressTick?.invoke(id, fMin, sec, bMin) }
     )
 
     val cycleState: StateFlow<CycleState> get() = sessionManager.state
 
-    // ── Music callback (set by ViewModel after binding) ───────────────────────
+    // ── Callbacks (set by ViewModel after binding) ────────────────────────────
     var onMusicStartBreak: (() -> Unit)?   = null
     var onMusicStopFocus:  (() -> Unit)?   = null
     var onCycleComplete:   ((CycleState) -> Unit)? = null
+    var onProgressTick:    ((sessionId: Long, liveFocusMinutes: Int, liveFocusSeconds: Long, liveBreakMinutes: Int) -> Unit)? = null
 
     // ── Wake lock ─────────────────────────────────────────────────────────────
 

@@ -3,6 +3,8 @@ package com.focussessions.app.stopwatch
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.*
 import androidx.core.app.NotificationCompat
 import com.focussessions.app.MainActivity
@@ -16,13 +18,14 @@ import kotlinx.coroutines.flow.asStateFlow
 class StopwatchService : Service() {
 
     companion object {
-        const val CHANNEL_ID      = "stopwatch_channel"
-        const val NOTIF_ID        = 2001
-        const val ACTION_START    = "sw.START"
-        const val ACTION_PAUSE    = "sw.PAUSE"
-        const val ACTION_RESUME   = "sw.RESUME"
-        const val ACTION_RESET    = "sw.RESET"
-        const val EXTRA_DURATION  = "sw.duration_ms"
+        const val CHANNEL_ID          = "stopwatch_channel"
+        const val COMPLETE_CHANNEL_ID = "stopwatch_complete_channel"
+        const val NOTIF_ID            = 2001
+        const val ACTION_START        = "sw.START"
+        const val ACTION_PAUSE        = "sw.PAUSE"
+        const val ACTION_RESUME       = "sw.RESUME"
+        const val ACTION_RESET        = "sw.RESET"
+        const val EXTRA_DURATION      = "sw.duration_ms"
     }
 
     inner class SwBinder : Binder() { fun get(): StopwatchService = this@StopwatchService }
@@ -92,8 +95,8 @@ class StopwatchService : Service() {
     }
 
     private fun onTick(rem: Long) {
+        if (_state.value.state != StopwatchState.RUNNING) return
         _state.value = _state.value.copy(remainingMs = rem)
-        // Throttle notification updates to ~1/s to save battery
         if (rem % 1000L < 50L) updateNotif("Stopwatch: ${formatMs(rem)}", rem)
     }
 
@@ -109,8 +112,22 @@ class StopwatchService : Service() {
 
     // ── Notifications ─────────────────────────────────────────────────────────
     private fun createChannel() {
-        NotificationChannel(CHANNEL_ID, "Stopwatch", NotificationManager.IMPORTANCE_LOW).apply {
-            setSound(null, null); enableVibration(false)
+        NotificationChannel(CHANNEL_ID, "Stopwatch Running", NotificationManager.IMPORTANCE_LOW).apply {
+            setSound(null, null)
+            enableVibration(false)
+            nm().createNotificationChannel(this)
+        }
+
+        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+
+        NotificationChannel(COMPLETE_CHANNEL_ID, "Stopwatch Completed", NotificationManager.IMPORTANCE_HIGH).apply {
+            setSound(soundUri, AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build())
+            enableVibration(true)
+            vibrationPattern = longArrayOf(0, 500, 250, 500)
             nm().createNotificationChannel(this)
         }
     }
@@ -143,11 +160,16 @@ class StopwatchService : Service() {
             Intent(this, MainActivity::class.java).putExtra("tab", "stopwatch"),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+        return NotificationCompat.Builder(this, COMPLETE_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("⏱ Time completed — music started")
-            .setContentText("Tap to open")
+            .setContentTitle("⏱ Time completed")
+            .setContentText("Your stopwatch countdown finished — ringing music started")
             .setContentIntent(open)
+            .setSound(soundUri)
+            .setVibrate(longArrayOf(0, 500, 250, 500))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .build()
     }

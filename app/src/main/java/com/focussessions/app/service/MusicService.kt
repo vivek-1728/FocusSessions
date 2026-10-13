@@ -3,6 +3,8 @@ package com.focussessions.app.service
 import android.content.ContentResolver
 import android.content.Context
 import android.database.Cursor
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.media3.common.MediaItem
@@ -47,11 +49,14 @@ class MusicService : MediaSessionService() {
 class MusicManager(private val context: Context) {
 
     private var exoPlayer: ExoPlayer? = null
+    private var systemRingtone: Ringtone? = null
 
     private val _isPlaying   = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private val _currentTrack = MutableStateFlow<MusicTrack?>(null)
+    private val _currentTrack = MutableStateFlow<MusicTrack?>(
+        MusicTrack(-1L, "Default Alarm Ring ⏰", "System Alarm", 5000L, "DEFAULT_ALARM")
+    )
     val currentTrack: StateFlow<MusicTrack?> = _currentTrack.asStateFlow()
 
     private val _trackList = MutableStateFlow<List<MusicTrack>>(emptyList())
@@ -60,48 +65,85 @@ class MusicManager(private val context: Context) {
     private var currentTrackIndex = 0
 
     // ── Playback Control ──────────────────────────────────────────────────────
-    fun prepareAndPlay(uri: String) {
-        ensurePlayer()
-        val player = exoPlayer ?: run {
-            _isPlaying.value = true
-            return
+    fun prepareAndPlay(uriStr: String) {
+        stopSystemRingtone()
+
+        val parsedUri = when {
+            uriStr.isEmpty() || uriStr == "default" || uriStr == "DEFAULT_ALARM" ->
+                runCatching {
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                }.getOrNull()
+            else -> runCatching { Uri.parse(uriStr) }.getOrNull()
         }
-        runCatching {
-            val mediaItem = MediaItem.fromUri(Uri.parse(uri))
-            player.setMediaItem(mediaItem)
-            player.prepare()
-            player.playWhenReady = true
-            _isPlaying.value = true
-        }.onFailure {
+
+        var exoSuccess = false
+        if (parsedUri != null) {
+            runCatching {
+                ensurePlayer()
+                exoPlayer?.let { player ->
+                    val mediaItem = MediaItem.fromUri(parsedUri)
+                    player.setMediaItem(mediaItem)
+                    player.prepare()
+                    player.playWhenReady = true
+                    _isPlaying.value = true
+                    exoSuccess = true
+                }
+            }.onFailure {
+                exoSuccess = false
+            }
+        }
+
+        if (!exoSuccess && parsedUri != null) {
+            runCatching {
+                systemRingtone = RingtoneManager.getRingtone(context, parsedUri)
+                systemRingtone?.play()
+                _isPlaying.value = true
+            }.onFailure {
+                _isPlaying.value = true
+            }
+        } else if (parsedUri == null) {
             _isPlaying.value = true
         }
     }
 
     fun play() {
-        exoPlayer?.let {
-            it.play()
+        if (systemRingtone != null) {
+            systemRingtone?.play()
             _isPlaying.value = true
+        } else {
+            exoPlayer?.let {
+                it.play()
+                _isPlaying.value = true
+            }
         }
     }
 
     fun pause() {
-        exoPlayer?.let {
-            it.pause()
-            _isPlaying.value = false
-        }
+        exoPlayer?.pause()
+        stopSystemRingtone()
+        _isPlaying.value = false
     }
 
     fun stop() {
-        exoPlayer?.let {
-            it.stop()
-            _isPlaying.value = false
-        }
+        exoPlayer?.stop()
+        stopSystemRingtone()
+        _isPlaying.value = false
     }
 
     fun release() {
         exoPlayer?.release()
         exoPlayer = null
+        stopSystemRingtone()
         _isPlaying.value = false
+    }
+
+    private fun stopSystemRingtone() {
+        runCatching {
+            systemRingtone?.stop()
+            systemRingtone = null
+        }
     }
 
     fun nextTrack() {
@@ -136,16 +178,46 @@ class MusicManager(private val context: Context) {
     // ── Library Scanning ──────────────────────────────────────────────────────
     fun loadLocalTracks(): List<MusicTrack> {
         val tracks = mutableListOf<MusicTrack>()
-        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
 
+        // 1. Always include Default Alarm Ring
+        val defaultAlarm = MusicTrack(
+            id = -1L,
+            title = "Default Alarm Ring ⏰",
+            artist = "System Alarm",
+            duration = 5000L,
+            uri = "DEFAULT_ALARM"
+        )
+        tracks += defaultAlarm
+
+        // 2. Query System Ringtones & Alarms
+        runCatching {
+            val rm = RingtoneManager(context).apply {
+                setType(RingtoneManager.TYPE_ALARM or RingtoneManager.TYPE_RINGTONE)
+            }
+            rm.cursor?.use { cursor ->
+                var sysId = -2L
+                while (cursor.moveToNext()) {
+                    val title = cursor.getString(RingtoneManager.TITLE_COLUMN_INDEX) ?: "Ringtone"
+                    val uri = rm.getRingtoneUri(cursor.position)?.toString() ?: continue
+                    tracks += MusicTrack(
+                        id = sysId--,
+                        title = title,
+                        artist = "System Ringtone",
+                        duration = 5000L,
+                        uri = uri
+                    )
+                }
+            }
+        }
+
+        // 3. Query Local Music Files from MediaStore
+        val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
-            MediaStore.Audio.Media.DURATION,
-            MediaStore.Audio.Media.DATA
+            MediaStore.Audio.Media.DURATION
         )
-
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
         val sortOrder = "${MediaStore.Audio.Media.TITLE} ASC"
 
@@ -157,14 +229,13 @@ class MusicManager(private val context: Context) {
                 val titleCol    = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
                 val artistCol   = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
                 val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-                val dataCol     = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
                 while (cursor.moveToNext()) {
                     val id       = cursor.getLong(idCol)
                     val uri      = Uri.withAppendedPath(collection, id.toString()).toString()
                     tracks += MusicTrack(
                         id       = id,
-                        title    = cursor.getString(titleCol) ?: "Unknown",
+                        title    = cursor.getString(titleCol) ?: "Unknown Track",
                         artist   = cursor.getString(artistCol) ?: "Unknown Artist",
                         duration = cursor.getLong(durationCol),
                         uri      = uri
@@ -176,6 +247,9 @@ class MusicManager(private val context: Context) {
         }
 
         _trackList.value = tracks
+        if (_currentTrack.value == null && tracks.isNotEmpty()) {
+            _currentTrack.value = tracks.first()
+        }
         return tracks
     }
 
@@ -190,7 +264,7 @@ class MusicManager(private val context: Context) {
                         player.addListener(object : Player.Listener {
                             override fun onPlaybackStateChanged(playbackState: Int) {
                                 if (playbackState == Player.STATE_ENDED) {
-                                    nextTrack()  // auto-advance
+                                    nextTrack()
                                 }
                             }
                             override fun onIsPlayingChanged(isPlaying: Boolean) {

@@ -308,34 +308,42 @@ private fun MusicSetup(
 
     LaunchedEffect(Unit) { viewModel.loadTracks() }
 
+    val trackToDisplay = currentTrack
+        ?: viewModel.uiState.value.trackList.find { it.uri == selectedUri }
+        ?: viewModel.uiState.value.trackList.firstOrNull()
+
     Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0A0A))) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Rounded.MusicNote, null, tint = Color(0xFF444444), modifier = Modifier.size(14.dp))
-                Text("Music on completion", style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFF666666)))
-            }
-            if (selectedUri.isEmpty()) {
-                TextButton(onClick = { showPicker = true }, contentPadding = PaddingValues(0.dp)) {
-                    Text("Choose a track to play when done", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF333333)))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.MusicNote, null, tint = Color(0xFF444444), modifier = Modifier.size(14.dp))
+                    Text("Music / Ringtone on completion", style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFF666666)))
                 }
-            } else {
-                MusicMiniBar(
-                    currentTrack = currentTrack,
-                    isPlaying    = isPlaying,
-                    isFocusPhase = false,
-                    onPlayPause  = viewModel::toggleMusic,
-                    onNext       = {},
-                    onPrevious   = {},
-                    onOpenPicker = { showPicker = true }
-                )
+                TextButton(onClick = { showPicker = true }, contentPadding = PaddingValues(0.dp)) {
+                    Text("Change", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF888888)))
+                }
             }
+
+            MusicMiniBar(
+                currentTrack = trackToDisplay,
+                isPlaying    = isPlaying,
+                isFocusPhase = false,
+                onPlayPause  = viewModel::toggleMusic,
+                onNext       = {},
+                onPrevious   = {},
+                onOpenPicker = { showPicker = true }
+            )
         }
     }
 
     if (showPicker) {
         com.focussessions.app.ui.components.MusicPickerDialog(
             tracks        = viewModel.uiState.value.trackList,
-            currentTrack  = currentTrack,
+            currentTrack  = trackToDisplay,
             onSelectTrack = { track ->
                 viewModel.selectCompletionTrack(track.uri)
                 showPicker = false

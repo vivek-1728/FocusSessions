@@ -3,11 +3,13 @@ package com.focussessions.app.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.focussessions.app.calendar.*
-import com.focussessions.app.data.local.database.entities.ProductivityInsightEntity
 import com.focussessions.app.data.local.database.dao.AnalyticsDao
+import com.focussessions.app.data.local.database.dao.FocusHistoryDao
+import com.focussessions.app.data.local.database.entities.ProductivityInsightEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -27,33 +29,46 @@ enum class AnalyticsTab { DAILY, WEEKLY, MONTHLY }
 class AnalyticsViewModel @Inject constructor(
     private val analyticsEngine: AnalyticsEngine,
     private val calculator: ProductivityCalculator,
-    private val analyticsDao: AnalyticsDao
+    private val analyticsDao: AnalyticsDao,
+    private val historyDao: FocusHistoryDao
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AnalyticsUiState())
     val state: StateFlow<AnalyticsUiState> = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        refresh()
+        observeData()
+    }
 
     fun setTab(tab: AnalyticsTab) {
         _state.update { it.copy(tab = tab) }
     }
 
-    fun refresh() {
+    fun refresh() = refreshAnalytics()
+
+    private fun observeData() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
+            analyticsDao.getAllInsights().collect { insights ->
+                _state.update { it.copy(insights = insights) }
+            }
+        }
+        viewModelScope.launch {
+            historyDao.getAll().collect {
+                refreshAnalytics()
+            }
+        }
+    }
+
+    private fun refreshAnalytics() {
+        viewModelScope.launch {
             calculator.generateAndCacheInsights()
-            val daily   = analyticsEngine.getDailyAnalytics(java.time.LocalDate.now().toEpochDay())
+            val daily   = analyticsEngine.getDailyAnalytics(LocalDate.now().toEpochDay())
             val weekly  = analyticsEngine.getWeeklyAnalytics()
             val monthly = analyticsEngine.getMonthlyAnalytics(
                 YearMonth.now().format(DateTimeFormatter.ofPattern("yyyy-MM"))
             )
             _state.update { it.copy(daily = daily, weekly = weekly, monthly = monthly, isLoading = false) }
-        }
-        viewModelScope.launch {
-            analyticsDao.getAllInsights().collect { insights ->
-                _state.update { it.copy(insights = insights) }
-            }
         }
     }
 }

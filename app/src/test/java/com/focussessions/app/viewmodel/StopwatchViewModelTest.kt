@@ -58,24 +58,15 @@ class StopwatchViewModelTest {
     fun `selectCompletionTrack and dismissCompletion update uiState`() = runTest {
         val viewModel = StopwatchViewModel(ApplicationProvider.getApplicationContext())
 
-        viewModel.uiState.test {
-            awaitItem() // initial
+        assertEquals("DEFAULT_ALARM", viewModel.uiState.value.selectedCompletionUri)
 
-            viewModel.selectCompletionTrack("content://media/external/audio/123")
-            val selected = awaitItem()
-            assertEquals("content://media/external/audio/123", selected.selectedCompletionUri)
+        viewModel.selectCompletionTrack("content://media/external/audio/123")
+        assertEquals("content://media/external/audio/123", viewModel.uiState.value.selectedCompletionUri)
 
-            viewModel.selectCompletionTrack("")
-            awaitItem()
+        viewModel.onStopwatchComplete()
+        assertTrue(viewModel.uiState.value.showCompletionOverlay)
 
-            viewModel.onStopwatchComplete()
-            val completed = awaitItem()
-            assertTrue(completed.showCompletionOverlay)
-
-            viewModel.dismissCompletion()
-            val dismissed = awaitItem()
-            assertFalse(dismissed.showCompletionOverlay)
-            cancelAndIgnoreRemainingEvents()
-        }
+        viewModel.dismissCompletion()
+        assertFalse(viewModel.uiState.value.showCompletionOverlay)
     }
 }

@@ -136,13 +136,14 @@ class NetworkMonitorTest {
         coEvery { mockFirestoreSync.uploadRaw(any(), any(), any()) } returns Result.success(Unit)
 
         // Instantiate SyncManager
-        SyncManager(
+        val sm = SyncManager(
             context,
             mockAuthManager,
             mockFirestoreSync,
             mockSyncQueueDao,
             mockHistoryDao,
             mockTaskDao,
+            mockk(relaxed = true),
             spyNetworkMonitor
         )
 
@@ -153,5 +154,6 @@ class NetworkMonitorTest {
         coVerify(timeout = 2000) {
             mockFirestoreSync.uploadRaw("tasks", "1", any())
         }
+        sm.close()
     }
 }

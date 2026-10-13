@@ -7,6 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.focussessions.app.auth.AuthManager
 import com.focussessions.app.auth.AuthResult
 import com.focussessions.app.auth.UserProfile
+import com.focussessions.app.calendar.AnalyticsEngine
+import com.focussessions.app.data.local.database.dao.DailyProgressDao
+import com.focussessions.app.data.repository.UserPreferencesRepository
 import com.focussessions.app.sync.SyncManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -24,7 +27,10 @@ data class AuthUiState(
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authManager: AuthManager,
-    private val syncManager: SyncManager
+    private val syncManager: SyncManager,
+    private val progressDao: DailyProgressDao,
+    private val analyticsEngine: AnalyticsEngine,
+    private val prefsRepository: UserPreferencesRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthUiState())
@@ -34,6 +40,21 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             authManager.currentUser.collect { user ->
                 _state.update { it.copy(user = user, isSignedIn = user != null) }
+            }
+        }
+        viewModelScope.launch {
+            combine(
+                progressDao.observeTotalFocusMinutes(),
+                prefsRepository.preferences
+            ) { totalMins, prefs ->
+                val mins = totalMins ?: 0
+                val streak = analyticsEngine.computeCurrentStreak().coerceAtLeast(prefs.streakCount)
+                mins to streak
+            }.collect { (mins, streak) ->
+                val currentUser = _state.value.user ?: return@collect
+                val updated = currentUser.copy(totalFocusMinutes = mins, currentStreak = streak)
+                _state.update { it.copy(user = updated) }
+                authManager.updateProfileStats(mins, streak)
             }
         }
     }

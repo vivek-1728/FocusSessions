@@ -6,6 +6,7 @@ import com.focussessions.app.calendar.*
 import com.focussessions.app.data.local.database.entities.*
 import com.focussessions.app.data.repository.FocusSessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -35,9 +36,18 @@ class CalendarViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(CalendarUiState())
     val state: StateFlow<CalendarUiState> = _state.asStateFlow()
-    private val ymFormatter = DateTimeFormatter.ofPattern("yyyy-MM")
 
-    init { loadCurrentMonth() }
+    private var monthJob: Job? = null
+    private var weekJob: Job? = null
+    private var heatmapJob: Job? = null
+    private var historyJob: Job? = null
+
+    init {
+        loadCurrentMonth()
+        loadHeatmap()
+        loadCurrentWeek()
+        selectDate(LocalDate.now())
+    }
 
     fun setViewMode(mode: CalendarViewMode) {
         _state.update { it.copy(viewMode = mode) }
@@ -62,7 +72,8 @@ class CalendarViewModel @Inject constructor(
 
     fun selectDate(date: LocalDate) {
         _state.update { it.copy(selectedDate = date) }
-        viewModelScope.launch {
+        historyJob?.cancel()
+        historyJob = viewModelScope.launch {
             repo.getHistoryForDay(date.toEpochDay())
                 .collect { history ->
                     _state.update { it.copy(selectedDayHistory = history) }
@@ -73,7 +84,8 @@ class CalendarViewModel @Inject constructor(
     private fun loadCurrentMonth() = loadMonth(_state.value.currentYearMonth)
 
     private fun loadMonth(ym: YearMonth) {
-        viewModelScope.launch {
+        monthJob?.cancel()
+        monthJob = viewModelScope.launch {
             calendarManager.getMonthData(ym.year, ym.monthValue).collect { data ->
                 val grid = calendarManager.buildMonthGrid(ym.year, ym.monthValue, data)
                 _state.update { it.copy(monthGrid = grid, currentYearMonth = ym) }
@@ -82,7 +94,8 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun loadCurrentWeek() {
-        viewModelScope.launch {
+        weekJob?.cancel()
+        weekJob = viewModelScope.launch {
             calendarManager.getWeekData(_state.value.selectedDate).collect { data ->
                 _state.update { it.copy(weekDays = data) }
             }
@@ -90,7 +103,8 @@ class CalendarViewModel @Inject constructor(
     }
 
     private fun loadHeatmap() {
-        viewModelScope.launch {
+        heatmapJob?.cancel()
+        heatmapJob = viewModelScope.launch {
             calendarManager.getYearHeatmap().collect { data ->
                 _state.update { it.copy(heatmapData = data) }
             }

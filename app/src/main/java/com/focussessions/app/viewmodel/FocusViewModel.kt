@@ -54,7 +54,8 @@ class FocusViewModel @Inject constructor(
     application: Application,
     private val taskRepository: TaskRepository,
     private val sessionRepository: FocusSessionRepository,
-    private val prefsRepository: UserPreferencesRepository
+    private val prefsRepository: UserPreferencesRepository,
+    private val syncManager: com.focussessions.app.sync.SyncManager
 ) : AndroidViewModel(application) {
 
     private val app = application
@@ -80,6 +81,14 @@ class FocusViewModel @Inject constructor(
             // Music callbacks wired here so service stays context-free
             svc.onMusicStartBreak = { startMusicForBreak() }
             svc.onMusicStopFocus  = { musicManager.pause() }
+
+            // Minute-by-minute live progress update across DB and Firebase
+            svc.onProgressTick = { sessionId, liveMin, liveSec, liveBreakMin ->
+                viewModelScope.launch {
+                    sessionRepository.updateLiveProgress(sessionId, liveMin, liveSec, liveBreakMin)
+                    syncManager.onLiveProgressChanged(sessionId)
+                }
+            }
 
             // Cycle completion
             svc.onCycleComplete = { finalState ->

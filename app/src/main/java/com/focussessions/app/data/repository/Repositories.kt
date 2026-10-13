@@ -59,6 +59,71 @@ class FocusSessionRepository @Inject constructor(
         }
     }
 
+    /** Minute-by-minute live progress update while a focus/break session is running. */
+    suspend fun updateLiveProgress(
+        sessionId: Long,
+        currentLiveFocusMinutes: Int,
+        currentLiveFocusSeconds: Long,
+        currentLiveBreakMinutes: Int
+    ) {
+        val today = LocalDate.now()
+        val epochDay = today.toEpochDay()
+        val ym = today.format(DateTimeFormatter.ofPattern("yyyy-MM"))
+        val now = System.currentTimeMillis()
+
+        val existingProgress = progressDao.getProgressForDay(epochDay)
+        if (existingProgress == null) {
+            progressDao.upsertProgress(DailyProgressEntity(
+                dateEpochDay = epochDay,
+                focusMinutes = currentLiveFocusMinutes,
+                sessionsCount = 1
+            ))
+        } else {
+            val newMinutes = maxOf(existingProgress.focusMinutes, currentLiveFocusMinutes)
+            progressDao.upsertProgress(existingProgress.copy(focusMinutes = newMinutes))
+        }
+
+        val existingCalDay = calendarDao.getDay(epochDay)
+        val best = calendarDao.personalBestMinutes() ?: 1
+        val newTotalCalMin = maxOf(existingCalDay?.totalFocusMinutes ?: 0, currentLiveFocusMinutes)
+        val newTotalBreakMin = maxOf(existingCalDay?.totalBreakMinutes ?: 0, currentLiveBreakMinutes)
+        calendarDao.upsertDay(CalendarDayEntity(
+            dateEpochDay = epochDay,
+            totalFocusMinutes = newTotalCalMin,
+            sessionCount = maxOf(existingCalDay?.sessionCount ?: 1, 1),
+            longestSessionMinutes = maxOf(existingCalDay?.longestSessionMinutes ?: 0, currentLiveFocusMinutes),
+            totalBreakMinutes = newTotalBreakMin,
+            intensityScore = (newTotalCalMin.toFloat() / maxOf(best, newTotalCalMin)).coerceIn(0.25f, 1f),
+            dayOfWeek = today.dayOfWeek.value,
+            yearMonth = ym
+        ))
+
+        val existingHistory = historyDao.getById(sessionId)
+        if (existingHistory == null) {
+            historyDao.insert(FocusHistoryEntity(
+                sessionId = sessionId,
+                startTime = now - (currentLiveFocusSeconds * 1000L),
+                endTime = now,
+                focusDuration = currentLiveFocusMinutes,
+                breakDuration = currentLiveBreakMinutes,
+                completedCycles = 1,
+                sessionTitle = "Focus Session",
+                dateEpochDay = epochDay,
+                dayOfWeek = today.dayOfWeek.value,
+                startHour = LocalDateTime.now().hour,
+                wasCompleted = false,
+                actualFocusMinutes = currentLiveFocusMinutes,
+                actualBreakMinutes = currentLiveBreakMinutes
+            ))
+        } else {
+            historyDao.insert(existingHistory.copy(
+                endTime = now,
+                actualFocusMinutes = maxOf(existingHistory.actualFocusMinutes, currentLiveFocusMinutes),
+                actualBreakMinutes = maxOf(existingHistory.actualBreakMinutes, currentLiveBreakMinutes)
+            ))
+        }
+    }
+
     /** Full history record written after a complete cycle. */
     suspend fun recordFullSession(
         startTime: Long,

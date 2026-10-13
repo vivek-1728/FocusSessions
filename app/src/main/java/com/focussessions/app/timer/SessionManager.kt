@@ -23,7 +23,8 @@ class SessionManager(
     private val scope: CoroutineScope,
     private val onPhaseChanged: (SessionPhase) -> Unit    = {},
     private val onCycleCompleted: (CycleState) -> Unit    = {},
-    private val onNotificationUpdate: (CycleState) -> Unit = {}
+    private val onNotificationUpdate: (CycleState) -> Unit = {},
+    private val onProgressTick: (sessionId: Long, liveFocusMinutes: Int, liveFocusSeconds: Long, liveBreakMinutes: Int) -> Unit = { _, _, _, _ -> }
 ) {
 
     private val engine = TimerEngine(scope)
@@ -38,6 +39,10 @@ class SessionManager(
     var breakDurationMinutes: Int = 5
 
     // ── Internal bookkeeping ──────────────────────────────────────────────────
+
+    var activeSessionId: Long = System.currentTimeMillis()
+        private set
+    private var lastRecordedFocusMinute: Int = 0
 
     /** Focus seconds accumulated from fully-completed sessions. */
     private var completedFocusSeconds: Long = 0L
@@ -68,6 +73,8 @@ class SessionManager(
         completedFocusSeconds = 0L
         totalBreakSeconds     = 0L
         currentCycleNumber    = 0
+        lastRecordedFocusMinute = 0
+        activeSessionId       = System.currentTimeMillis()
         startNextFocusSession()
     }
 
@@ -139,6 +146,7 @@ class SessionManager(
         completedFocusSeconds = 0L
         totalBreakSeconds     = 0L
         currentCycleNumber    = 0
+        lastRecordedFocusMinute = 0
         _state.value = CycleState(
             targetFocusMinutes   = targetFocusMinutes,
             focusDurationMinutes = focusDurationMinutes,
@@ -153,6 +161,8 @@ class SessionManager(
 
     private fun startNextFocusSession() {
         currentCycleNumber++
+        activeSessionId = System.currentTimeMillis()
+        lastRecordedFocusMinute = 0
 
         // Trim final session to exact remaining target time
         val remainingTargetSec = ((targetFocusMinutes * 60L) - completedFocusSeconds)
@@ -227,6 +237,24 @@ class SessionManager(
         )
         _state.value = updated
         onNotificationUpdate(updated)
+
+        if (updated.phase == SessionPhase.FOCUS) {
+            val liveSec = updated.liveCompletedFocusSeconds
+            val currentLiveMin = (liveSec / 60L).toInt()
+            val breakMin = (updated.totalBreakSeconds / 60L).toInt()
+            if (currentLiveMin > lastRecordedFocusMinute && currentLiveMin > 0) {
+                lastRecordedFocusMinute = currentLiveMin
+                onProgressTick(activeSessionId, currentLiveMin, liveSec, breakMin)
+            }
+        } else if (updated.phase == SessionPhase.BREAK) {
+            val liveBreakSec = updated.totalBreakSeconds
+            val currentBreakMin = (liveBreakSec / 60L).toInt()
+            val focusMin = (updated.liveCompletedFocusSeconds / 60L).toInt()
+            if (currentBreakMin > lastRecordedFocusMinute && currentBreakMin > 0) {
+                lastRecordedFocusMinute = currentBreakMin
+                onProgressTick(activeSessionId, focusMin, updated.liveCompletedFocusSeconds, currentBreakMin)
+            }
+        }
     }
 
     private fun isTargetReached(): Boolean =

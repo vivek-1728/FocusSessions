@@ -60,6 +60,13 @@ class StopwatchViewModel @Inject constructor(
         viewModelScope.launch {
             musicManager.currentTrack.collect { t -> _uiState.update { it.copy(currentTrack = t) } }
         }
+        viewModelScope.launch {
+            val tracks = musicManager.loadLocalTracks()
+            if (_uiState.value.selectedCompletionUri.isEmpty() && tracks.isNotEmpty()) {
+                val defaultTrack = tracks.first()
+                _uiState.update { it.copy(selectedCompletionUri = defaultTrack.uri, currentTrack = defaultTrack) }
+            }
+        }
     }
 
     // ── Stopwatch controls ────────────────────────────────────────────────────
@@ -86,32 +93,43 @@ class StopwatchViewModel @Inject constructor(
     fun setSeconds(s: Int) { _uiState.update { it.copy(stopwatch = it.stopwatch.copy(seconds = s)) } }
 
     // ── Music ─────────────────────────────────────────────────────────────────
-    fun loadTracks() { viewModelScope.launch { musicManager.loadLocalTracks() } }
+    fun loadTracks() {
+        viewModelScope.launch {
+            val tracks = musicManager.loadLocalTracks()
+            if (_uiState.value.selectedCompletionUri.isEmpty() && tracks.isNotEmpty()) {
+                val defaultTrack = tracks.first()
+                _uiState.update { it.copy(selectedCompletionUri = defaultTrack.uri, currentTrack = defaultTrack) }
+            }
+        }
+    }
+
     fun selectCompletionTrack(uri: String) {
         _uiState.update { it.copy(selectedCompletionUri = uri) }
+        val track = _uiState.value.trackList.find { it.uri == uri }
+        if (track != null) {
+            musicManager.selectTrack(track)
+        } else {
+            musicManager.prepareAndPlay(uri)
+        }
     }
+
     fun toggleMusic() {
         if (_uiState.value.isMusicPlaying) musicManager.pause() else musicManager.play()
     }
+
     fun stopMusic() { musicManager.stop() }
 
     internal fun onStopwatchComplete() {
-        val uri = _uiState.value.selectedCompletionUri
-        if (uri.isNotEmpty()) {
-            // Fade-in: start at 0 volume and ramp up
-            musicManager.setVolume(0f)
-            musicManager.prepareAndPlay(uri)
-            viewModelScope.launch {
-                repeat(20) { i ->
-                    kotlinx.coroutines.delay(50L)
-                    musicManager.setVolume((i + 1) / 20f)
-                }
-            }
-        }
-        _uiState.update { it.copy(showCompletionOverlay = true) }
+        val uri = _uiState.value.selectedCompletionUri.ifEmpty { "DEFAULT_ALARM" }
+        musicManager.setVolume(1f)
+        musicManager.prepareAndPlay(uri)
+        _uiState.update { it.copy(showCompletionOverlay = true, isMusicPlaying = true) }
     }
 
-    fun dismissCompletion() { _uiState.update { it.copy(showCompletionOverlay = false) } }
+    fun dismissCompletion() {
+        musicManager.stop()
+        _uiState.update { it.copy(showCompletionOverlay = false) }
+    }
 
     override fun onCleared() {
         super.onCleared()

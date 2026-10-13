@@ -66,8 +66,8 @@ class TwoDeviceSyncTest {
 
         serviceB = FakeFirestoreService(dbB.focusHistoryDao(), dbB.taskDao(), dbB.calendarDao())
 
-        syncManagerA = SyncManager(context, authManagerA, serviceA, dbA.syncQueueDao(), dbA.focusHistoryDao(), dbA.taskDao(), fakeNetworkA)
-        syncManagerB = SyncManager(context, authManagerB, sharedCloudBBridge(), dbB.syncQueueDao(), dbB.focusHistoryDao(), dbB.taskDao(), fakeNetworkB)
+        syncManagerA = SyncManager(context, authManagerA, serviceA, dbA.syncQueueDao(), dbA.focusHistoryDao(), dbA.taskDao(), dbA.calendarDao(), fakeNetworkA)
+        syncManagerB = SyncManager(context, authManagerB, sharedCloudBBridge(), dbB.syncQueueDao(), dbB.focusHistoryDao(), dbB.taskDao(), dbB.calendarDao(), fakeNetworkB)
     }
 
     private fun sharedCloudBBridge(): FakeFirestoreService {
@@ -76,6 +76,8 @@ class TwoDeviceSyncTest {
 
     @After
     fun tearDown() {
+        syncManagerA.close()
+        syncManagerB.close()
         dbA.close()
         dbB.close()
     }
@@ -132,6 +134,9 @@ class TwoDeviceSyncTest {
         // 4. Cross-populate simulated cloud documents onto both services and run fullSync
         serviceA.rawUploads.getOrPut("tasks") { mutableMapOf() }["200"] = mapOf("taskId" to "200", "title" to "Task from Device B", "isCompleted" to true)
         serviceB.rawUploads.getOrPut("tasks") { mutableMapOf() }["100"] = mapOf("taskId" to "100", "title" to "Task from Device A", "isCompleted" to false)
+
+        serviceA.uploadedTasks["200"] = taskB
+        serviceB.uploadedTasks["100"] = taskA
 
         serviceA.uploadedSessions["2002"] = sessionB
         serviceB.uploadedSessions["1001"] = sessionA

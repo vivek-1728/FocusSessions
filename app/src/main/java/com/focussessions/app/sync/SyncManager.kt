@@ -6,6 +6,7 @@ import com.focussessions.app.auth.AuthManager
 import com.focussessions.app.auth.SyncState
 import com.focussessions.app.auth.SyncStatus
 import com.focussessions.app.connectivity.NetworkMonitor
+import com.focussessions.app.data.local.database.dao.CalendarDao
 import com.focussessions.app.data.local.database.dao.FocusHistoryDao
 import com.focussessions.app.data.local.database.dao.TaskDao
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,6 +28,7 @@ class SyncManager @Inject constructor(
     private val syncQueueDao: SyncQueueDao,
     private val historyDao: FocusHistoryDao,
     private val taskDao: TaskDao,
+    private val calendarDao: CalendarDao,
     private val networkMonitor: NetworkMonitor
 ) {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -73,6 +75,7 @@ class SyncManager @Inject constructor(
             operation   = "UPSERT",
             payload     = entity.toJsonString()
         ))
+        onCalendarDayChanged(entity.dateEpochDay)
         if (networkMonitor.isCurrentlyOnline() && authManager.isLoggedIn) flushQueue()
     }
 
@@ -96,6 +99,35 @@ class SyncManager @Inject constructor(
         if (networkMonitor.isCurrentlyOnline() && authManager.isLoggedIn) flushQueue()
     }
 
+    /** Called minute-by-minute while a focus session is in progress. */
+    suspend fun onLiveProgressChanged(sessionId: Long) {
+        val entity = historyDao.getById(sessionId)
+        if (entity != null) {
+            enqueue(SyncQueueEntity(
+                collection  = "focus_sessions",
+                documentId  = sessionId.toString(),
+                operation   = "UPSERT",
+                payload     = entity.toJsonString()
+            ))
+            onCalendarDayChanged(entity.dateEpochDay)
+        }
+        if (networkMonitor.isCurrentlyOnline() && authManager.isLoggedIn) flushQueue()
+    }
+
+    /** Called when a calendar day's focus stats change. */
+    suspend fun onCalendarDayChanged(epochDay: Long) {
+        val entity = calendarDao.getDay(epochDay)
+        if (entity != null) {
+            enqueue(SyncQueueEntity(
+                collection  = "calendar_days",
+                documentId  = epochDay.toString(),
+                operation   = "UPSERT",
+                payload     = entity.toJsonString()
+            ))
+        }
+        if (networkMonitor.isCurrentlyOnline() && authManager.isLoggedIn) flushQueue()
+    }
+
     /** Full sync on first login or manual pull. */
     suspend fun fullSync() {
         if (!authManager.isLoggedIn || !networkMonitor.isCurrentlyOnline()) return
@@ -105,6 +137,8 @@ class SyncManager @Inject constructor(
             flushQueue()
             // Download & merge cloud data
             firestoreSync.downloadAndMergeFocusSessions()
+            firestoreSync.downloadAndMergeDailyProgress()
+            firestoreSync.downloadAndMergeCalendarDays()
             firestoreSync.downloadAndMergeTasks()
 
             _syncState.update {
@@ -156,7 +190,6 @@ class SyncManager @Inject constructor(
     private suspend fun enqueue(op: SyncQueueEntity) = syncQueueDao.enqueue(op)
 
     private fun schedulePeriodicSync() {
-        // Skip scheduling background WorkManager jobs in unit test environments
         if (isUnitTestEnvironment()) return
         try {
             val constraints = Constraints.Builder()
@@ -201,7 +234,6 @@ fun Map<String, Any>.toJsonString(): String = buildString {
 }
 
 fun String.fromJsonString(): Map<String, Any> {
-    // Minimal JSON parser for flat key-value maps only
     val result = mutableMapOf<String, Any>()
     val content = trim().removePrefix("{").removeSuffix("}")
     if (content.isBlank()) return result
@@ -236,4 +268,25 @@ fun com.focussessions.app.data.local.database.entities.TaskEntity.toJsonString()
     mapOf<String, Any>(
         "taskId" to id, "title" to title, "isCompleted" to isCompleted,
         "createdAt" to createdAt, "updatedAt" to System.currentTimeMillis()
+    ).toJsonString()
+
+fun com.focussessions.app.data.local.database.entities.DailyProgressEntity.toJsonString() =
+    mapOf<String, Any>(
+        "dateEpochDay"  to dateEpochDay,
+        "focusMinutes"  to focusMinutes,
+        "sessionsCount" to sessionsCount,
+        "updatedAt"     to System.currentTimeMillis()
+    ).toJsonString()
+
+fun com.focussessions.app.data.local.database.entities.CalendarDayEntity.toJsonString() =
+    mapOf<String, Any>(
+        "dateEpochDay"          to dateEpochDay,
+        "totalFocusMinutes"     to totalFocusMinutes,
+        "sessionCount"          to sessionCount,
+        "longestSessionMinutes" to longestSessionMinutes,
+        "totalBreakMinutes"     to totalBreakMinutes,
+        "intensityScore"        to intensityScore,
+        "dayOfWeek"             to dayOfWeek,
+        "yearMonth"             to yearMonth,
+        "updatedAt"             to System.currentTimeMillis()
     ).toJsonString()

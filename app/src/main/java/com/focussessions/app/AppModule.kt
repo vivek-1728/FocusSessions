@@ -82,11 +82,12 @@ object AppModule {
     // ── Calendar / Analytics ──────────────────────────────────────────────────
 
     @Provides @Singleton
-    fun provideCalendarManager(dao: CalendarDao) = CalendarManager(dao)
+    fun provideCalendarManager(cDao: CalendarDao, hDao: FocusHistoryDao, pDao: DailyProgressDao) =
+        CalendarManager(cDao, hDao, pDao)
 
     @Provides @Singleton
-    fun provideAnalyticsEngine(hDao: FocusHistoryDao, aDao: AnalyticsDao) =
-        AnalyticsEngine(hDao, aDao)
+    fun provideAnalyticsEngine(hDao: FocusHistoryDao, aDao: AnalyticsDao, pDao: DailyProgressDao) =
+        AnalyticsEngine(hDao, aDao, pDao)
 
     @Provides @Singleton
     fun provideProductivityCalculator(hDao: FocusHistoryDao, aDao: AnalyticsDao) =
@@ -107,8 +108,9 @@ object AppModule {
         firestore: FirebaseFirestore,
         historyDao: FocusHistoryDao,
         taskDao: TaskDao,
-        calendarDao: CalendarDao
-    ) = FirestoreSyncService(auth, firestore, historyDao, taskDao, calendarDao)
+        calendarDao: CalendarDao,
+        progressDao: DailyProgressDao
+    ) = FirestoreSyncService(auth, firestore, historyDao, taskDao, calendarDao, progressDao)
 
     @Provides @Singleton
     fun provideSyncManager(
@@ -118,8 +120,9 @@ object AppModule {
         syncQueueDao: SyncQueueDao,
         historyDao: FocusHistoryDao,
         taskDao: TaskDao,
+        calendarDao: CalendarDao,
         networkMonitor: NetworkMonitor
-    ) = SyncManager(ctx, authManager, firestoreSync, syncQueueDao, historyDao, taskDao, networkMonitor)
+    ) = SyncManager(ctx, authManager, firestoreSync, syncQueueDao, historyDao, taskDao, calendarDao, networkMonitor)
 
     @Provides @Singleton
     fun provideNetworkMonitor(@ApplicationContext ctx: Context) = NetworkMonitor(ctx)

@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.Flow
 @Dao interface DailyProgressDao {
     @Query("SELECT * FROM daily_progress WHERE dateEpochDay = :day")
     fun observeProgressForDay(day: Long): Flow<DailyProgressEntity?>
+    @Query("SELECT SUM(focusMinutes) FROM daily_progress")
+    fun observeTotalFocusMinutes(): Flow<Int?>
     @Query("SELECT * FROM daily_progress ORDER BY dateEpochDay DESC LIMIT 30")
     fun getRecentProgress(): Flow<List<DailyProgressEntity>>
     @Query("SELECT * FROM daily_progress WHERE dateEpochDay = :day")
@@ -60,6 +62,9 @@ interface FocusHistoryDao {
     @Query("SELECT * FROM focus_history ORDER BY startTime DESC")
     fun getAll(): Flow<List<FocusHistoryEntity>>
 
+    @Query("SELECT SUM(actualFocusMinutes) FROM focus_history")
+    fun observeTotalFocusMinutes(): Flow<Int?>
+
     @Query("SELECT * FROM focus_history WHERE dateEpochDay = :day ORDER BY startTime DESC")
     fun getForDay(day: Long): Flow<List<FocusHistoryEntity>>
 
@@ -68,6 +73,18 @@ interface FocusHistoryDao {
 
     @Query("SELECT SUM(actualFocusMinutes) FROM focus_history WHERE dateEpochDay = :day")
     suspend fun totalFocusMinutesForDay(day: Long): Int?
+
+    @Query("SELECT COUNT(*) FROM focus_history WHERE dateEpochDay = :day")
+    suspend fun sessionCountForDay(day: Long): Int
+
+    @Query("SELECT SUM(actualBreakMinutes) FROM focus_history WHERE dateEpochDay = :day")
+    suspend fun totalBreakMinutesForDay(day: Long): Int?
+
+    @Query("SELECT * FROM focus_history WHERE dateEpochDay = :day ORDER BY startTime DESC")
+    suspend fun getForDayList(day: Long): List<FocusHistoryEntity>
+
+    @Query("SELECT COUNT(*) FROM focus_history WHERE dateEpochDay BETWEEN :from AND :to")
+    suspend fun sessionCountForRange(from: Long, to: Long): Int
 
     @Query("SELECT SUM(actualFocusMinutes) FROM focus_history WHERE dateEpochDay BETWEEN :from AND :to")
     suspend fun totalFocusMinutesForRange(from: Long, to: Long): Int?
